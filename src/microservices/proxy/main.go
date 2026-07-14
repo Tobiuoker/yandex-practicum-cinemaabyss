@@ -61,7 +61,7 @@ func NewApp() *App {
 func (app *App) Run(ctx context.Context) {
 	http.HandleFunc("/health", app.handleHealth)
 	http.HandleFunc("/api/movies", app.handleMovies)
-	http.HandleFunc("/api/movies/health", app.handleHealth)
+	http.HandleFunc("/api/movies/health", app.handleMoviesHealth)
 	http.HandleFunc("/api/events/", app.handleEvents)
 	http.HandleFunc("/api/", app.handleMonolith)
 
@@ -74,6 +74,10 @@ func (app *App) Run(ctx context.Context) {
 
 func main() {
 	NewApp().Run(context.Background())
+}
+
+func (app *App) handleMoviesHealth(w http.ResponseWriter, r *http.Request) {
+	app.moviesServiceProxy.ServeHTTP(w, r)
 }
 
 func (app *App) handleHealth(w http.ResponseWriter, r *http.Request) {
