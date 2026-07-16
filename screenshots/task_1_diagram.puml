@@ -1,0 +1,31 @@
+@startuml
+!includeurl https://raw.githubusercontent.com/RicardoNiepel/C4-PlantUML/master/C4_Container.puml
+
+title КиноБездна
+
+Person(person, "Пользователь")
+
+System_Boundary(cinemaabyss, "CinemaAbyss") {
+    Container(proxy, "Proxy / API Gateway", "Go, HTTP", "Единая точка входа. Постепенно переключает трафик фильмов по feature flag")
+
+    Container(monolith, "Монолит", "Go, HTTP", "Пользователи, платежи, подписки и часть запросов фильмов во время миграции")
+    Container(movies, "Movies service", "Go, HTTP", "Данные фильмов")
+    Container(events, "Events service", "Go, HTTP, Kafka", "Создаёт и обрабатывает события")
+
+    ContainerQueue(kafka, "Kafka", "Kafka", "Топики movie-events, user-events и payment-events")
+    ContainerDb(postgres, "PostgreSQL", "PostgreSQL", "Общая БД")
+}
+
+Rel(person, proxy, "Вызывает API")
+
+Rel(proxy, movies, "Направляет часть или весь трафик /api/movies")
+Rel(proxy, monolith, "Направляет остальной API и часть трафика в монолит")
+Rel(proxy, events, "Передаёт запросы /api/events")
+
+Rel(monolith, postgres, "Читает и изменяет данные")
+Rel(movies, postgres, "Читает и изменяет данные")
+
+Rel(events, kafka, "Публикует события")
+Rel(kafka, events, "Доставляет события consumer'ам")
+
+@enduml
