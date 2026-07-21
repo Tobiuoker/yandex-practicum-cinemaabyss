@@ -66,6 +66,7 @@ metadata:
     app: monolith
     app.kubernetes.io/name: {{ include "cinemaabyss.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
+    istio.io/use-waypoint: application-waypoint
 spec:
   selector:
     app: monolith

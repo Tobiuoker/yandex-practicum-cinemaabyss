@@ -5,7 +5,7 @@
 1. Спроектируйте to be архитектуру КиноБездны, разделив всю систему на отдельные домены и организовав интеграционное взаимодействие и единую точку вызова сервисов.
 Результат представьте в виде контейнерной диаграммы в нотации С4.
 Добавьте ссылку на файл в этот шаблон
-[ссылка на файл](ссылка)
+[ссылка на файл](./screenshots/task_1_diagram.puml)
 
 
 ## Задание 2
@@ -59,6 +59,8 @@
 Необходимые тесты для проверки этого API вызываются при запуске npm run test:local из папки tests/postman 
 Приложите скриншот тестов и скриншот состояния топиков Kafka http://localhost:8090 
 
+![](./screenshots/task_2_tests.png)
+![](./screenshots/task_2_topics.png)
 
 ## Задание 3
 
@@ -274,6 +276,8 @@ cat .docker/config.json | base64
 #### Шаг 3
 Добавьте сюда скриншота вывода при вызове https://cinemaabyss.example.com/api/movies и  скриншот вывода event-service после вызова тестов.
 
+![](./screenshots/task_3_test_and_movie_service.png)
+![](./screenshots/task_3_events_service.png)
 
 ## Задание 4
 Для простоты дальнейшего обновления и развертывания вам как архитектуру необходимо так же реализовать helm-чарты для прокси-сервиса и проверить работу 
@@ -349,6 +353,7 @@ minikube tunnel
 https://cinemaabyss.example.com/api/movies
 и приложите скриншот развертывания helm и вывода https://cinemaabyss.example.com/api/movies
 
+![](./screenshots/task_4_helm.png)
 
 # Задание 5
 Компания планирует активно развиваться и для повышения надежности, безопасности, реализации сетевых паттернов типа Circuit Breaker и канареечного деплоя вам как архитектору необходимо развернуть istio и настроить circuit breaker для monolith и movies сервисов.
@@ -422,3 +427,82 @@ kubectl delete namespace istio-system
 kubectl delete all --all -n cinemaabyss
 kubectl delete namespace cinemaabyss
 ```
+
+Circuit breaker реализовал через ambient mode, т.к. самому было интересно попробовать более оптимизированный подход без сайдкара в каждом поде.
+
+Буду тестировать запросы в `movies-service`
+
+Сначала делаю 20 последовательных запросов раз в секунду. Ожидается, что circuit breaker пропустит все запросы
+```
+kubectl exec \
+  -n "$NAMESPACE" \
+  "$FORTIO_POD" \
+  -c fortio \
+  -- fortio load \
+  -c 1 \
+  -qps 1 \
+  -n 20 \
+  -loglevel Warning \
+  http://movies-service:8081/api/movies
+```
+
+Видно, что все 20 запросов завершились с кодом 200
+![Результат](./screenshots/circuit_breaker_consecutive_requests.png)
+
+
+По метрикам также видно, что все запросы завершились с кодом 200
+```
+kubectl exec \
+  -n "$NAMESPACE" \
+  "$WAYPOINT_POD" \
+  -c istio-proxy \
+  -- pilot-agent request GET stats |
+  grep 'istiocustom.istio_requests_total' |
+  grep 'source_workload.fortio-deploy' |
+  grep 'destination_service_name.movies-service'
+```
+![Результат](./screenshots/circuit_breaker_consecutive_requests_metrics.png)
+
+Далее делаем нагрузочный тест с 500 запросами и 50 воркерами
+
+```
+kubectl exec \
+  -n "$NAMESPACE" \
+  "$FORTIO_POD" \
+  -c fortio \
+  -- fortio load \
+  -c 50 \
+  -qps 0 \
+  -n 500 \
+  -loglevel Warning \
+  http://movies-service:8081/api/movies
+```
+
+При указанной политике в [circuit breaker](./src/kubernetes/helm/templates/movies-circuit-breaker.yaml), только очень небольшая часть запросов пройдет, а остальные должны получить 503
+```
+connectionPool:
+  tcp: 
+      maxConnections: 1
+  http:
+      http1MaxPendingRequests: 1
+      maxRequestsPerConnection: 1
+```
+
+Видно, что только 2 процента запросов завершились успешно
+![](./screenshots/circuit_breaker_highload_test.png)
+
+
+По метрикам видно, что большинство запросов упали с ошибкой UA - `Upstream overflow`
+
+```
+kubectl exec \
+  -n "$NAMESPACE" \
+  "$WAYPOINT_POD" \
+  -c istio-proxy \
+  -- pilot-agent request GET stats |
+  grep 'istiocustom.istio_requests_total' |
+  grep 'source_workload.fortio-deploy' |
+  grep 'destination_service_name.movies-service'
+```
+
+![](./screenshots/circuit_breaker_highload_test_metrics.png)
